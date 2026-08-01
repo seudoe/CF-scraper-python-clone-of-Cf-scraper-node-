@@ -4,18 +4,35 @@ Endpoints match the Node.js version for compatibility with seudoe extension
 """
 
 import os
+import sys
 import threading
+from pathlib import Path
 from flask import Flask, jsonify, request, Response
 from dotenv import load_dotenv
+
+# Load environment from multiple possible locations
+script_dir = Path(__file__).parent.absolute()
+env_loaded = False
+for env_file in ['.env.local', '.env']:
+    env_path = script_dir / env_file
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f'[env] Loaded {env_file}')
+        env_loaded = True
+        break
+
+if not env_loaded:
+    print('[env] No .env file found, using system environment')
+
+# Verify MONGODB_URI is set
+mongodb_uri = os.getenv('MONGODB_URI')
+if mongodb_uri:
+    print(f'[env] ✓ MONGODB_URI is set (length: {len(mongodb_uri)} chars)')
+else:
+    print('[env] ✗ WARNING: MONGODB_URI is not set!')
+
 from lib.db import get_problems_collection, get_index_collection, get_images_collection
 from lib.worker import sync_problems
-
-
-# Load environment variables
-load_dotenv('.env.local')
-load_dotenv('.env')
-
-print('[env] Environment loaded')
 
 app = Flask(__name__)
 

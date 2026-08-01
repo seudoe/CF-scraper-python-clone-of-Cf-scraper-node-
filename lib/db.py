@@ -3,12 +3,14 @@ MongoDB connection and collection management
 """
 
 import os
+from typing import Optional
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
+from .colors import blue, green, gray, success, info
 
-_client: MongoClient = None
-_db: Database = None
+_client: Optional[MongoClient] = None
+_db: Optional[Database] = None
 
 
 def connect():
@@ -22,10 +24,10 @@ def connect():
     if not uri:
         raise ValueError('MONGODB_URI environment variable not set')
     
-    print('[db] Connecting to MongoDB ...')
+    print(blue('[db] Connecting to MongoDB ...'))
     _client = MongoClient(uri)
-    _db = _client.get_database()
-    print('[db] ✓ Connected to MongoDB')
+    _db = _client['codeforces']  # Explicitly specify the database name
+    print(success('[db] Connected to MongoDB (database: codeforces)'))
     return _db
 
 
@@ -52,4 +54,4 @@ def close():
     global _client
     if _client:
         _client.close()
-        print('[db] Connection closed')
+        print(info('[db] Connection closed'))

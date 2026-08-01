@@ -3,12 +3,14 @@ HTML and image fetching using Selenium (bypasses Cloudflare bot detection)
 """
 
 import time
+from typing import Dict, Tuple
 import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
+from .colors import yellow, green, cyan, warning, success, info
 
 
 _driver = None
@@ -21,7 +23,7 @@ def get_driver():
     if _driver is not None:
         return _driver
     
-    print('[fetch] Launching headless Chrome...')
+    print(yellow('[fetch] Launching headless Chrome...'))
     
     chrome_options = Options()
     chrome_options.add_argument('--headless=new')
@@ -29,8 +31,12 @@ def get_driver():
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--disable-gpu')
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging'])
     chrome_options.add_experimental_option('useAutomationExtension', False)
+    
+    # Suppress WebRTC/STUN errors
+    chrome_options.add_argument('--disable-webrtc')
+    chrome_options.add_argument('--log-level=3')
     
     # User agent to avoid bot detection
     chrome_options.add_argument(
@@ -45,33 +51,39 @@ def get_driver():
         'source': 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})'
     })
     
-    print('[fetch] ✓ Browser launched')
+    print(success('[fetch] Browser launched'))
     return _driver
 
 
 def fetch_html(url: str) -> str:
     """Fetches HTML from a URL using Selenium WebDriver"""
-    print(f'[fetch] Fetching HTML: {url}')
+    print(yellow(f'[fetch] Fetching HTML: {url}'))
     
     driver = get_driver()
     driver.get(url)
     
-    # Wait for page to load (wait for .problem-statement to appear)
-    time.sleep(2)
+    # Wait longer for page to load - give JS time to execute
+    # Some CF pages load content dynamically
+    print(info('[fetch] Waiting for page to fully load...'))
+    time.sleep(4)
     
     html = driver.page_source
     size_kb = len(html) / 1024
-    print(f'[fetch] ✓ Got HTML for {url} ({size_kb:.1f} KB)')
+    print(green(f'[fetch] ✓ Got HTML for {url} ({size_kb:.1f} KB)'))
+    
+    # Quick check if we got actual content
+    if '.problem-statement' not in html and 'problem-statement' not in html:
+        print(warning(f'[fetch] ⚠ Warning: HTML may not contain problem statement'))
     
     return html
 
 
-def fetch_image_as_buffer(url: str) -> tuple:
+def fetch_image_as_buffer(url: str) -> Dict[str, any]:
     """
-    Fetches an image and returns (buffer, content_type)
+    Fetches an image and returns {'buffer': bytes, 'contentType': str}
     Uses requests (not Selenium) since images don't need JS execution
     """
-    print(f'[fetch] Fetching image: {url}')
+    print(yellow(f'[fetch] Fetching image: {url}'))
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36',
@@ -86,9 +98,9 @@ def fetch_image_as_buffer(url: str) -> tuple:
     buffer = response.content
     
     size_kb = len(buffer) / 1024
-    print(f'[fetch] ✓ Got image ({content_type}, {size_kb:.1f} KB)')
+    print(green(f'[fetch] ✓ Got image ({content_type}, {size_kb:.1f} KB)'))
     
-    return buffer, content_type
+    return {'buffer': buffer, 'contentType': content_type}
 
 
 def close_driver():
