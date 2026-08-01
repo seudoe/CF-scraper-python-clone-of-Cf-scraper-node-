@@ -1,3 +1,14 @@
+---
+title: Codeforces Problem Scraper API
+emoji: 🔍
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+---
+
 # Codeforces Problem Scraper
 
 A Python-based web scraper for Codeforces problems with intelligent Cloudflare bypass using persistent browser profiles.
