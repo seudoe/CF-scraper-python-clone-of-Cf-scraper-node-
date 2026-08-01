@@ -7,7 +7,7 @@ import os
 import sys
 import threading
 from pathlib import Path
-from flask import Flask, jsonify, request, Response
+from flask import Flask, jsonify, request, Response, render_template
 from dotenv import load_dotenv
 
 # Load environment from multiple possible locations
@@ -27,9 +27,9 @@ if not env_loaded:
 # Verify MONGODB_URI is set
 mongodb_uri = os.getenv('MONGODB_URI')
 if mongodb_uri:
-    print(f'[env] ✓ MONGODB_URI is set (length: {len(mongodb_uri)} chars)')
+    print(f'[env] [OK] MONGODB_URI is set (length: {len(mongodb_uri)} chars)')
 else:
-    print('[env] ✗ WARNING: MONGODB_URI is not set!')
+    print('[env] [X] WARNING: MONGODB_URI is not set!')
 
 from lib.db import get_problems_collection, get_index_collection, get_images_collection
 from lib.worker import sync_problems
@@ -39,16 +39,22 @@ app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    """Health check endpoint - shows scraped problem count"""
-    try:
-        index_col = get_index_collection()
-        doc = index_col.find_one({})
-        count = len(doc.get('ids', [])) if doc else 0
-        print(f'[api] Health check — scraped problems: {count}')
-        return jsonify({'status': 'ok', 'service': 'cf-scraper-python', 'scraped': count})
-    except Exception as e:
-        print(f'[api] ✗ DB connection failed: {e}')
-        return jsonify({'status': 'ok', 'service': 'cf-scraper-python', 'dbError': str(e)})
+    """Health check endpoint or web UI - serves HTML for browsers, JSON for API calls"""
+    # Check if request wants JSON (API call) or HTML (browser)
+    if request.accept_mimetypes.best == 'application/json' or 'application/json' in request.accept_mimetypes:
+        # Return JSON for API calls
+        try:
+            index_col = get_index_collection()
+            doc = index_col.find_one({})
+            count = len(doc.get('ids', [])) if doc else 0
+            print(f'[api] Health check — scraped problems: {count}')
+            return jsonify({'status': 'ok', 'service': 'cf-scraper-python', 'scraped': count})
+        except Exception as e:
+            print(f'[api] [X] DB connection failed: {e}')
+            return jsonify({'status': 'ok', 'service': 'cf-scraper-python', 'dbError': str(e)})
+    else:
+        # Return HTML UI for browsers
+        return render_template('index.html')
 
 
 @app.route('/sync', methods=['GET', 'POST'])
@@ -85,12 +91,12 @@ def get_problem(contest_id, index):
             return jsonify({'error': f'Problem {contest_id}{index} not found. Run /sync first.'}), 404
         
         title = cached.get('statement', {}).get('title', 'Untitled')
-        print(f'[api] ✓ Returning problem {contest_id}-{index}: "{title}"')
+        print(f'[api] [OK] Returning problem {contest_id}-{index}: "{title}"')
         
         return jsonify(cached)
         
     except Exception as e:
-        print(f'[api] ✗ Error fetching problem {contest_id}-{index}: {e}')
+        print(f'[api] [X] Error fetching problem {contest_id}-{index}: {e}')
         return jsonify({'error': str(e)}), 500
 
 
@@ -107,7 +113,7 @@ def get_image(filename):
             print(f'[api] Image not found: {filename}')
             return jsonify({'error': f'Image {filename} not found'}), 404
         
-        print(f'[api] ✓ Serving image: {filename} ({doc["contentType"]})')
+        print(f'[api] [OK] Serving image: {filename} ({doc["contentType"]})')
         
         return Response(
             doc['data'],
@@ -118,7 +124,7 @@ def get_image(filename):
         )
         
     except Exception as e:
-        print(f'[api] ✗ Error fetching image {filename}: {e}')
+        print(f'[api] [X] Error fetching image {filename}: {e}')
         return jsonify({'error': str(e)}), 500
 
 
@@ -132,12 +138,12 @@ def get_index():
         doc = index_col.find_one({})
         ids = doc.get('ids', []) if doc else []
         
-        print(f'[api] ✓ Index has {len(ids)} scraped problems')
+        print(f'[api] [OK] Index has {len(ids)} scraped problems')
         
         return jsonify({'ids': ids, 'count': len(ids)})
         
     except Exception as e:
-        print(f'[api] ✗ Error fetching index: {e}')
+        print(f'[api] [X] Error fetching index: {e}')
         return jsonify({'error': str(e)}), 500
 
 

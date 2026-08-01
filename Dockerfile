@@ -1,28 +1,25 @@
-FROM python:3.11-slim
-
-# Install Chrome and dependencies
-RUN apt-get update && apt-get install -y \
-    chromium \
-    chromium-driver \
-    wget \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set environment variable for Chrome
-ENV CHROME_BIN=/usr/bin/chromium
-ENV CHROMEDRIVER_BIN=/usr/bin/chromedriver
+FROM python:3.9-slim
 
 WORKDIR /app
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy requirements
+COPY requirements-hf.txt .
+
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements-hf.txt
 
 # Copy application code
-COPY . .
+COPY lib/ ./lib/
+COPY templates/ ./templates/
+COPY app_hf.py .
+COPY .env.example .env
 
-# Expose port
-EXPOSE 5000
+# Expose port (HF Spaces uses 7860)
+EXPOSE 7860
+
+# Set environment variables
+ENV PORT=7860
+ENV PYTHONUNBUFFERED=1
 
 # Run with gunicorn
-CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:5000", "app:app", "--timeout", "300"]
+CMD ["gunicorn", "--bind", "0.0.0.0:7860", "--workers", "2", "--timeout", "120", "app_hf:app"]

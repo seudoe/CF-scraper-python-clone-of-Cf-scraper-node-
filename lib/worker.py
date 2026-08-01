@@ -7,10 +7,8 @@ from typing import Dict
 from lib.cf_api import fetch_all_problems
 from lib.scraper import scrape_problem
 from lib.db import get_problems_collection, get_index_collection
+from lib.timing import random_wait
 from lib.colors import green, red, yellow, cyan, bold, success, error, warning, info
-
-
-SCRAPE_DELAY_SEC = 10
 
 
 def sync_problems() -> Dict:
@@ -18,9 +16,9 @@ def sync_problems() -> Dict:
     Main sync function - fetches problem list and scrapes new problems
     Returns dict with scraped/failed/total counts
     """
-    print(cyan('[worker] ════════════════════════════════'))
+    print(cyan('[worker] ================================'))
     print(cyan('[worker] Starting problem sync'))
-    print(cyan('[worker] ════════════════════════════════'))
+    print(cyan('[worker] ================================'))
     
     try:
         # 1. Fetch all problems from CF API
@@ -61,7 +59,7 @@ def sync_problems() -> Dict:
                 
                 # Save problem JSON to problems collection
                 problems_col.insert_one(doc)
-                print(green(f'[worker] ✓ Saved {problem_id} to problems collection'))
+                print(green(f'[worker] [OK] Saved {problem_id} to problems collection'))
                 
                 # Update the index
                 index_col.update_one(
@@ -69,26 +67,26 @@ def sync_problems() -> Dict:
                     {'$addToSet': {'ids': problem_id}},
                     upsert=True
                 )
-                print(green(f'[worker] ✓ Updated problem_index with {problem_id}'))
+                print(green(f'[worker] [OK] Updated problem_index with {problem_id}'))
                 
                 scraped += 1
-                print(bold(green(f'[worker] {progress} Done: {problem_id} ✓  (total scraped: {scraped})')))
+                print(bold(green(f'[worker] {progress} Done: {problem_id} [OK]  (total scraped: {scraped})')))
                 
             except Exception as err:
                 failed += 1
-                print(red(f'[worker] {progress} ✗ Failed: {problem_id} — {err}'))
+                print(red(f'[worker] {progress} [X] Failed: {problem_id} — {err}'))
             
-            # Wait before next problem (skip delay after last one)
+            # Wait before next problem with randomized delay (7-15 seconds)
+            # This mimics human behavior and avoids Cloudflare detection
             if i < len(new_problems):
-                print(info(f'[worker] Waiting {SCRAPE_DELAY_SEC}s before next problem...'))
-                time.sleep(SCRAPE_DELAY_SEC)
+                random_wait(min_seconds=7, max_seconds=15, reason="next problem")
         
-        print(cyan('[worker] ════════════════════════════════'))
+        print(cyan('[worker] ================================'))
         print(bold(green(f'[worker] Sync complete — scraped: {scraped}, failed: {failed}, total CF: {len(all_problems)}')))
-        print(cyan('[worker] ════════════════════════════════'))
+        print(cyan('[worker] ================================'))
         
         return {'scraped': scraped, 'failed': failed, 'total': len(all_problems)}
         
     except Exception as err:
-        print(red(f'[worker] ✗ Sync crashed: {err}'))
+        print(red(f'[worker] [X] Sync crashed: {err}'))
         raise

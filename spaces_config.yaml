@@ -1,0 +1,19 @@
+# Hugging Face Spaces configuration
+title: Codeforces Problem Scraper API
+emoji: 🔍
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+license: mit
+app_port: 7860
+
+# Suggested tags for discoverability
+tags:
+  - codeforces
+  - scraper
+  - api
+  - competitive-programming
+
+# Short description
+short_description: REST API for accessing scraped Codeforces problems with intelligent parsing

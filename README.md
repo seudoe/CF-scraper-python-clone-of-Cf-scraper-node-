@@ -1,178 +1,143 @@
-# CF Scraper (Python + Selenium)
+# Codeforces Problem Scraper
 
-Codeforces problem scraper service built with Python, Selenium, and Flask.
-
-Uses **Selenium WebDriver** instead of Puppeteer to reliably bypass Cloudflare bot detection. Works on Hugging Face Spaces and other Python hosting platforms.
+A Python-based web scraper for Codeforces problems with intelligent Cloudflare bypass using persistent browser profiles.
 
 ## Features
 
-- ✅ Scrapes Codeforces problems with Selenium (bypasses Cloudflare)
-- ✅ Stores problems in MongoDB with structured Block-based format
-- ✅ Downloads and caches images locally
-- ✅ 10-second delay between scrapes to avoid rate limiting
-- ✅ Skips already-scraped problems
-- ✅ RESTful API compatible with seudoe VS Code extension
-
-## Setup
-
-### 1. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Install Chrome/Chromium
-
-Selenium requires Chrome or Chromium to be installed:
-
-**Ubuntu/Debian:**
-```bash
-sudo apt-get update
-sudo apt-get install -y chromium-browser chromium-chromedriver
-```
-
-**macOS:**
-```bash
-brew install --cask google-chrome
-brew install chromedriver
-```
-
-**Windows:**
-Download and install Chrome from https://www.google.com/chrome/
-
-### 3. Configure Environment
-
-Copy `.env.example` to `.env.local`:
-
-```bash
-cp .env.example .env.local
-```
-
-Edit `.env.local` and add your MongoDB URI:
-
-```
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/cf-scraper?retryWrites=true&w=majority
-PORT=3000
-```
-
-### 4. Run the Server
-
-```bash
-python app.py
-```
-
-Server will start on `http://localhost:3000`
+- ✅ **Persistent Browser Profile** - Maintains cookies and cache across sessions for better Cloudflare bypass
+- ✅ **Intelligent Parsing** - Handles arbitrary HTML nesting with recursive DOM walker
+- ✅ **MongoDB Storage** - Stores problems and images in MongoDB
+- ✅ **REST API** - Flask API for accessing scraped problems
+- ✅ **Randomized Timing** - Human-like request patterns (7-15s delays)
+- ✅ **Colored Logging** - Clear, semantic terminal output
+- ✅ **Image Caching** - Stores images with `cf-image://` URLs
 
 ## API Endpoints
 
 ### `GET /`
-Health check - returns service status and scraped problem count
+Health check endpoint.
 
-### `GET /sync` or `POST /sync`
-Start background sync worker to scrape all problems from Codeforces API
-
-### `GET /problem/:contestId/:index`
-Get a cached problem (e.g., `/problem/158/A`)
-
-### `GET /image/:filename`
-Get a cached image
-
-### `GET /index`
-List all scraped problem IDs
-
-## Deployment
-
-### Hugging Face Spaces
-
-1. Create a new Space with Docker SDK
-2. Add `Dockerfile`:
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install Chrome
-RUN apt-get update && apt-get install -y \
-    chromium \
-    chromium-driver \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-
-ENV PYTHONUNBUFFERED=1
-ENV PORT=7860
-
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:7860", "--timeout", "0", "--workers", "1"]
-```
-
-3. Add your `MONGODB_URI` as a Space secret
-4. Push code to the Space
-
-### Render.com
-
-1. Create new Web Service
-2. Build Command: `pip install -r requirements.txt`
-3. Start Command: `gunicorn app:app --bind 0.0.0.0:$PORT --timeout 0 --workers 1`
-4. Add `MONGODB_URI` environment variable
-5. Deploy
-
-## Data Structure
-
-Problems are stored using the same Block-based structure as the TypeScript version:
-
+**Response:**
 ```json
 {
-  "contestId": 158,
+  "status": "ok",
+  "service": "cf-scraper-python",
+  "scraped": 1234
+}
+```
+
+### `GET /problem/:contestId/:index`
+Get a specific problem.
+
+**Example:** `/problem/1/A`
+
+**Response:**
+```json
+{
+  "contestId": 1,
   "index": "A",
-  "cachedAt": 1754040000,
-  "version": 1,
   "statement": {
-    "title": "Next Round",
-    "timeLimit": "3 seconds",
+    "title": "Theatre Square",
+    "timeLimit": "1 second",
     "memoryLimit": "256 megabytes",
-    "description": [
-      {"type": "paragraph", "html": "..."},
-      {"type": "image", "src": "cf-image://158-A_img1.png"}
-    ],
+    "description": [...],
     "input": [...],
     "output": [...],
-    "examples": [
-      {"input": "...", "output": "...", "explanation": "..."}
-    ],
-    "note": [...]
+    "examples": [...]
   }
 }
 ```
 
-## MongoDB Collections
+### `GET /image/:filename`
+Get a cached image.
 
-- `problems` - cached problem statements
-- `problem_index` - list of scraped problem IDs
-- `images` - binary image data
+**Example:** `/image/1-A_diagram.png`
 
-## Logging
+### `GET /index`
+Get list of all scraped problem IDs.
 
-The service logs all operations:
-- `[cf-api]` - CF API calls
-- `[fetch]` - HTML/image fetching
-- `[parse]` - HTML parsing
-- `[scraper]` - Problem scraping
-- `[worker]` - Sync worker
-- `[db]` - Database operations
-- `[api]` - API requests
-- `[server]` - Server startup
+**Response:**
+```json
+{
+  "ids": ["1-A", "1-B", "2-A", ...],
+  "count": 1234
+}
+```
 
-## Differences from Node.js Version
+### `POST /sync`
+Trigger background sync of new problems.
 
-1. Uses **Selenium WebDriver** instead of Puppeteer
-2. Uses **Flask** instead of Node's http module
-3. Uses **threading** instead of async/await for background sync
-4. Uses **BeautifulSoup** for HTML parsing
-5. Otherwise maintains identical API and data structure
+**Response:**
+```json
+{
+  "status": "started",
+  "message": "Sync started in background"
+}
+```
+
+## Environment Variables
+
+- `MONGODB_URI` - MongoDB connection string (required)
+- `PORT` - Server port (default: 5000)
+
+## Local Development
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Set environment variables
+cp .env.example .env
+# Edit .env with your MongoDB URI
+
+# Run the server
+python app.py
+
+# Or run a full sync
+python sync.py
+
+# Test the parser
+python test_parser.py
+```
+
+## Profile Management
+
+```bash
+# Check profile status
+python manage_profile.py
+
+# Clear profile (start fresh)
+python manage_profile.py clear
+```
+
+## Architecture
+
+- **Persistent Profile**: Stores cookies, cache, local storage in `chrome-profile/`
+- **Randomized Delays**: 7-15 second waits between requests
+- **Intelligent Waiting**: Detects and waits for Cloudflare challenges
+- **Recursive Parser**: Handles any HTML structure
+
+## Success Rate
+
+- **First Run**: ~10-20% (building trust)
+- **Second Run**: ~40-60% (has cookies)
+- **Third+ Runs**: ~60-80% (trusted profile)
+
+## Documentation
+
+- `STATUS.md` - Current status and completed fixes
+- `PERSISTENT_PROFILE_GUIDE.md` - Detailed guide on persistent profiles
+- `cloudflareDetection.md` - Cloudflare signals research
+- `parserCorrection.md` - Parser design documentation
+
+## Tech Stack
+
+- **Python 3.9+**
+- **Selenium** - Browser automation with persistent profiles
+- **Flask** - REST API
+- **MongoDB** - Data storage
+- **BeautifulSoup4** - HTML parsing
+- **Colorama** - Terminal colors
 
 ## License
 

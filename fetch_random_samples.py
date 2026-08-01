@@ -8,16 +8,17 @@ sys.path.insert(0, str(script_dir))
 
 from lib.cf_api import fetch_all_problems
 from lib.fetch import fetch_html, get_driver, close_driver
-from lib.colors import green, yellow, cyan, success, info
+from lib.timing import random_wait
+from lib.colors import green, yellow, cyan, red, success, info
 
 # Configuration
 OUTPUT_DIR = script_dir / 'example-htmls'
 NUM_SAMPLES = 15
 
 def main():
-    print(cyan('[fetch-samples] ═══════════════════════════════'))
+    print(cyan('[fetch-samples] ==============================='))
     print(cyan(f'[fetch-samples] Fetching {NUM_SAMPLES} random problem HTMLs'))
-    print(cyan('[fetch-samples] ═══════════════════════════════\n'))
+    print(cyan('[fetch-samples] ===============================\n'))
     
     # Create output directory if it doesn't exist
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -58,22 +59,26 @@ def main():
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(html)
             
-            print(success(f'[fetch-samples] ✓ Saved to {filename.name}'))
+            print(success(f'[fetch-samples] Saved to {filename.name}'))
             success_count += 1
             
         except Exception as e:
-            print(f'[fetch-samples] ✗ Failed to fetch {problem_id}: {e}')
+            print(red(f'[fetch-samples] [X] Failed to fetch {problem_id}: {e}'))
             fail_count += 1
+        
+        # Randomized wait between requests (7-15 seconds) to mimic human behavior
+        if i < len(selected):
+            random_wait(min_seconds=7, max_seconds=15, reason="next problem")
     
     # Close browser
     close_driver()
     
     # Summary
-    print(cyan('\n[fetch-samples] ═══════════════════════════════'))
-    print(green(f'[fetch-samples] ✓ Successfully fetched: {success_count}/{NUM_SAMPLES}'))
+    print(cyan('\n[fetch-samples] ==============================='))
+    print(green(f'[fetch-samples] [OK] Successfully fetched: {success_count}/{NUM_SAMPLES}'))
     if fail_count > 0:
-        print(f'[fetch-samples] ✗ Failed: {fail_count}/{NUM_SAMPLES}')
-    print(cyan('[fetch-samples] ═══════════════════════════════'))
+        print(red(f'[fetch-samples] [X] Failed: {fail_count}/{NUM_SAMPLES}'))
+    print(cyan('[fetch-samples] ==============================='))
 
 if __name__ == '__main__':
     main()

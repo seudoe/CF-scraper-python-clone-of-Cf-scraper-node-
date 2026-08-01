@@ -1,14 +1,61 @@
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment
 .env
 .env.local
-venv/
-env/
-.vscode/
-*.log
-.DS_Store
-chromedriver
-geckodriver
+*.env
 
+# Chrome Profile (local only - too large for git)
+chrome-profile/
+
+# Example HTMLs (testing only)
+example-htmls/
+*.html
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Deployment
+*.pid
+*.sock
+
+chrome-profile/
+example-profile/

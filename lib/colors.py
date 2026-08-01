@@ -47,15 +47,15 @@ def bold(text):
 # Semantic helpers
 def error(text):
     """Error message (red)"""
-    return red(f"✗ {text}")
+    return red(f"[X] {text}")
 
 def success(text):
     """Success message (green)"""
-    return green(f"✓ {text}")
+    return green(f"[OK] {text}")
 
 def warning(text):
     """Warning message (light red)"""
-    return light_red(f"⚠ {text}")
+    return light_red(f"[!] {text}")
 
 def info(text):
     """Info message (cyan)"""
