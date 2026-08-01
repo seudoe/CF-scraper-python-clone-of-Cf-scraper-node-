@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: cf-scraper-python
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      apt-get update && apt-get install -y chromium chromium-driver || echo "Using system Chrome"
+    startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT app:app --timeout 300
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: MONGODB_URI
+        sync: false

@@ -1,0 +1,144 @@
+"""
+Flask API server for Codeforces problem scraper
+Endpoints match the Node.js version for compatibility with seudoe extension
+"""
+
+import os
+import threading
+from flask import Flask, jsonify, request, Response
+from dotenv import load_dotenv
+from lib.db import get_problems_collection, get_index_collection, get_images_collection
+from lib.worker import sync_problems
+
+
+# Load environment variables
+load_dotenv('.env.local')
+load_dotenv('.env')
+
+print('[env] Environment loaded')
+
+app = Flask(__name__)
+
+
+@app.route('/')
+def health_check():
+    """Health check endpoint - shows scraped problem count"""
+    try:
+        index_col = get_index_collection()
+        doc = index_col.find_one({})
+        count = len(doc.get('ids', [])) if doc else 0
+        print(f'[api] Health check — scraped problems: {count}')
+        return jsonify({'status': 'ok', 'service': 'cf-scraper-python', 'scraped': count})
+    except Exception as e:
+        print(f'[api] ✗ DB connection failed: {e}')
+        return jsonify({'status': 'ok', 'service': 'cf-scraper-python', 'dbError': str(e)})
+
+
+@app.route('/sync', methods=['GET', 'POST'])
+def sync():
+    """Start background sync worker (accepts GET for easy browser testing)"""
+    print('[api] Sync requested — starting background worker ...')
+    
+    def run_sync():
+        try:
+            result = sync_problems()
+            print(f'[api] Sync finished: {result}')
+        except Exception as e:
+            print(f'[api] Sync error: {e}')
+    
+    # Run sync in background thread
+    thread = threading.Thread(target=run_sync, daemon=True)
+    thread.start()
+    
+    return jsonify({'message': 'Sync started. Check server logs for progress.'}), 202
+
+
+@app.route('/problem/<int:contest_id>/<index>')
+def get_problem(contest_id, index):
+    """Get a cached problem by contestId and index"""
+    index = index.upper()
+    print(f'[api] Looking up problem {contest_id}-{index} in DB ...')
+    
+    try:
+        problems_col = get_problems_collection()
+        cached = problems_col.find_one({'contestId': contest_id, 'index': index}, {'_id': 0})
+        
+        if not cached:
+            print(f'[api] Problem {contest_id}-{index} not found in DB')
+            return jsonify({'error': f'Problem {contest_id}{index} not found. Run /sync first.'}), 404
+        
+        title = cached.get('statement', {}).get('title', 'Untitled')
+        print(f'[api] ✓ Returning problem {contest_id}-{index}: "{title}"')
+        
+        return jsonify(cached)
+        
+    except Exception as e:
+        print(f'[api] ✗ Error fetching problem {contest_id}-{index}: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/image/<filename>')
+def get_image(filename):
+    """Get a cached image by filename"""
+    print(f'[api] Fetching image from DB: {filename}')
+    
+    try:
+        images_col = get_images_collection()
+        doc = images_col.find_one({'filename': filename})
+        
+        if not doc:
+            print(f'[api] Image not found: {filename}')
+            return jsonify({'error': f'Image {filename} not found'}), 404
+        
+        print(f'[api] ✓ Serving image: {filename} ({doc["contentType"]})')
+        
+        return Response(
+            doc['data'],
+            mimetype=doc['contentType'],
+            headers={
+                'Cache-Control': 'public, max-age=31536000, immutable'
+            }
+        )
+        
+    except Exception as e:
+        print(f'[api] ✗ Error fetching image {filename}: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/index')
+def get_index():
+    """Get list of all scraped problem IDs"""
+    print('[api] Fetching problem index ...')
+    
+    try:
+        index_col = get_index_collection()
+        doc = index_col.find_one({})
+        ids = doc.get('ids', []) if doc else []
+        
+        print(f'[api] ✓ Index has {len(ids)} scraped problems')
+        
+        return jsonify({'ids': ids, 'count': len(ids)})
+        
+    except Exception as e:
+        print(f'[api] ✗ Error fetching index: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.errorhandler(404)
+def not_found(e):
+    """Handle 404 errors"""
+    print(f'[api] 404 — unknown route: {request.path}')
+    return jsonify({'error': 'Not found'}), 404
+
+
+if __name__ == '__main__':
+    port = int(os.getenv('PORT', 3000))
+    
+    print(f'[server] CF Scraper (Python) running on port {port}')
+    print(f'[server] GET/POST /sync   — start scraping')
+    print(f'[server] GET  /           — health check')
+    print(f'[server] GET  /problem/:contestId/:index')
+    print(f'[server] GET  /image/:filename')
+    print(f'[server] GET  /index      — list scraped IDs')
+    
+    app.run(host='0.0.0.0', port=port, debug=False)

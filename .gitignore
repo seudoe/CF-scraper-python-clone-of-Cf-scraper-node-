@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.local
+venv/
+env/
+.vscode/
+*.log
+.DS_Store
+chromedriver
+geckodriver
