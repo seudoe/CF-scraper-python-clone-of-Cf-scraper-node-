@@ -29,10 +29,15 @@ wheels/
 
 # Chrome Profile (local only - too large for git)
 chrome-profile/
+/chrome-profile/
 
 # Example HTMLs (testing only)
 example-htmls/
+/example-htmls/
 *.html
+
+/markdowns/
+markdowns/
 
 # IDE
 .vscode/
@@ -59,3 +64,5 @@ htmlcov/
 
 chrome-profile/
 example-profile/
+mongo-json-check/
+RAW_HTML/

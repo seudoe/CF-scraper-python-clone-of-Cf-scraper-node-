@@ -56,61 +56,63 @@ def fetch_html(url: str) -> str:
     
     try:
         driver.get(url)
-        
-        # Wait for either problem-statement to appear OR Cloudflare challenge
         print(info('[fetch] Waiting for page to load...'))
-        
+
+        # Phase 1: wait for problem-statement OR Cloudflare page (max 30s)
         try:
-            # Wait up to 30 seconds for either:
-            # 1. The problem-statement to appear (success)
-            # 2. Cloudflare challenge page (need to wait longer)
             WebDriverWait(driver, 30).until(
                 lambda d: (
                     d.find_elements(By.CLASS_NAME, 'problem-statement') or
                     'Just a moment' in d.title or
-                    'Performing security verification' in d.page_source or
-                    'Cloudflare' in d.page_source
+                    'Performing security verification' in d.page_source
                 )
             )
-            
-            # Check if we got Cloudflare challenge
-            if 'Just a moment' in driver.title or 'Performing security verification' in driver.page_source:
-                print(warning('[fetch] Cloudflare challenge detected, waiting for resolution...'))
-                
-                # Wait for Cloudflare to resolve (up to 30 more seconds)
+        except Exception:
+            pass  # timed out — fall through and check what we got
+
+        # Phase 2: if CF challenge appeared, give Turnstile up to 60s to auto-resolve
+        if 'Just a moment' in driver.title or 'Performing security verification' in driver.page_source:
+            print(warning('[fetch] Cloudflare challenge detected, waiting up to 60s...'))
+            try:
+                WebDriverWait(driver, 60).until(
+                    EC.presence_of_element_located((By.CLASS_NAME, 'problem-statement'))
+                )
+                print(success('[fetch] Cloudflare challenge resolved'))
+            except Exception:
+                # Don't sit here stuck — navigate away cleanly to keep session alive
+                print(error('[fetch] Cloudflare did not resolve, moving on...'))
                 try:
-                    WebDriverWait(driver, 30).until(
-                        EC.presence_of_element_located((By.CLASS_NAME, 'problem-statement'))
-                    )
-                    print(success('[fetch] Cloudflare challenge resolved'))
-                except:
-                    # Cloudflare didn't resolve - return the HTML anyway so we can detect it
-                    print(error('[fetch] Cloudflare challenge did not resolve in time'))
-            
+                    driver.get('about:blank')  # navigate away to release any held resources
+                except Exception:
+                    pass
+                raise Exception('Cloudflare challenge not resolved')
+
+        # Read final page
+        try:
+            html = driver.page_source
         except Exception as e:
-            print(warning(f'[fetch] Wait timeout: {e}'))
-        
-        html = driver.page_source
+            print(error(f'[fetch] Could not read page source: {e}'))
+            # Don't reset — CF may have just temporarily blocked us
+            # The browser is still alive for the next request
+            raise Exception(f'Could not read page after navigating to {url}')
+
         size_kb = len(html) / 1024
-        
-        # Detailed checks for what we got
-        if '.problem-statement' in html or 'problem-statement' in html:
-            print(green(f'[fetch] [OK] Got HTML for {url} ({size_kb:.1f} KB) - problem-statement found'))
+
+        if 'problem-statement' in html:
+            print(green(f'[fetch] [OK] Got HTML ({size_kb:.1f} KB) - problem-statement found'))
+            return html
         elif 'Just a moment' in html or 'Performing security verification' in html:
-            print(red(f'[fetch] [X] Got Cloudflare challenge page ({size_kb:.1f} KB)'))
-            raise Exception('Cloudflare challenge not resolved - got verification page instead of problem')
-        elif 'Cloudflare' in html:
-            print(red(f'[fetch] [X] Got Cloudflare-related page ({size_kb:.1f} KB)'))
-            raise Exception('Cloudflare protection triggered')
+            print(red(f'[fetch] [X] Still on Cloudflare page ({size_kb:.1f} KB)'))
+            raise Exception('Cloudflare challenge not resolved')
         else:
-            print(warning(f'[fetch] Got HTML ({size_kb:.1f} KB) but no problem-statement detected'))
-        
-        return html
-        
+            print(warning(f'[fetch] Got HTML ({size_kb:.1f} KB) but no problem-statement'))
+            raise Exception('Problem statement not found in page')
+
     except Exception as e:
-        # If we get an invalid session error, reset the driver
-        if 'invalid session' in str(e).lower():
-            print(error('[fetch] Browser session invalid, resetting...'))
+        err_str = str(e).lower()
+        if 'invalid session' in err_str or 'session not created' in err_str:
+            # Browser actually died — safe to reset
+            print(error('[fetch] Session lost, resetting driver...'))
             reset_driver()
         raise
 

@@ -11,6 +11,42 @@ def strip_tags(html: str) -> str:
     return ' '.join(text.split())
 
 
+def extract_math_and_clean(html_str: str) -> str:
+    """
+    Convert a paragraph's HTML into clean text, replacing MathJax blocks with
+    their LaTeX source (from <script type="math/tex"> tags).
+    
+    Input:  "The value <span class="MathJax_Preview">...</span>
+             <script type="math/tex">n^2</script> is given."
+    Output: "The value $n^2$ is given."
+    """
+    soup = BeautifulSoup(html_str, 'html.parser')
+
+    # Replace each math/tex script with a $...$ placeholder text node
+    for script in soup.find_all('script', type=lambda t: t and 'math/tex' in t):
+        latex = script.string or ''
+        latex = latex.strip()
+        # Display math (block) uses $$, inline uses $
+        if 'display' in (script.get('type') or ''):
+            replacement = f'$${latex}$$'
+        else:
+            replacement = f'${latex}$'
+        script.replace_with(replacement)
+
+    # Remove MathJax_Preview spans (they duplicate the script content visually)
+    for span in soup.find_all('span', class_='MathJax_Preview'):
+        span.decompose()
+
+    # Remove MathJax-internal spans (MJXp-*)
+    for span in soup.find_all('span', class_=lambda c: c and any('MJXp' in cls for cls in (c if isinstance(c, list) else [c]))):
+        span.decompose()
+
+    text = soup.get_text(separator=' ')
+    # Collapse whitespace
+    text = ' '.join(text.split())
+    return text
+
+
 def walk_node(node) -> List[Dict[str, Any]]:
     """
     Recursively walk a DOM node and emit blocks.
@@ -22,7 +58,7 @@ def walk_node(node) -> List[Dict[str, Any]]:
     if isinstance(node, (str, NavigableString)):
         text = str(node).strip()
         if text:
-            blocks.append({'type': 'paragraph', 'html': text})
+            blocks.append({'type': 'paragraph', 'html': text, 'text': text})
         return blocks
     
     # Must be a Tag
@@ -73,14 +109,16 @@ def walk_node(node) -> List[Dict[str, Any]]:
         # Check if it's just an image
         img = node.find('img')
         if img and len(list(node.children)) == 1:
-            # Just an image wrapped in <p>
             return walk_node(img)
         
-        # Regular paragraph with content
         html_content = ''.join(str(c) for c in node.children)
         trimmed = html_content.strip()
         if trimmed:
-            blocks.append({'type': 'paragraph', 'html': trimmed})
+            blocks.append({
+                'type': 'paragraph',
+                'html': trimmed,
+                'text': extract_math_and_clean(trimmed)   # clean version for indexing/display
+            })
         return blocks
     
     # Div - container only, recurse into children
@@ -93,12 +131,15 @@ def walk_node(node) -> List[Dict[str, Any]]:
     if tag_name == 'br':
         return blocks
     
-    # Other inline tags (span, a, strong, em, etc) - treat as text
+    # Other inline tags - return as HTML for inline formatting
     if tag_name in ['span', 'a', 'strong', 'em', 'b', 'i', 'u', 'code', 'sub', 'sup']:
-        # Return the whole element as HTML for inline formatting
         html = str(node).strip()
         if html:
-            blocks.append({'type': 'paragraph', 'html': html})
+            blocks.append({
+                'type': 'paragraph',
+                'html': html,
+                'text': extract_math_and_clean(html)
+            })
         return blocks
     
     # Unknown tag - recurse
