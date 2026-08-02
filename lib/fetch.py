@@ -58,6 +58,29 @@ def fetch_html(url: str) -> str:
         driver.get(url)
         print(info('[fetch] Waiting for page to load...'))
 
+        # PDF detection — Chrome's built-in PDF viewer produces a tiny page (~159 bytes)
+        # with a chrome-extension://...pdf_embedder.css link and empty title.
+        # Check within 3s (it loads almost instantly).
+        try:
+            WebDriverWait(driver, 3).until(lambda d: d.title != '' or len(d.page_source) > 300)
+        except Exception:
+            pass
+
+        _src_peek = driver.page_source
+        _is_pdf = (
+            'pdf_embedder' in _src_peek or
+            driver.title.lower().endswith('.pdf') or
+            (len(_src_peek) < 500 and 'chrome-extension://' in _src_peek)
+        )
+        if _is_pdf:
+            print(yellow(f'[fetch] [PDF] Chrome PDF viewer detected for {url} — skipping'))
+            try:
+                driver.get('about:blank')
+            except Exception:
+                pass
+            from .parse import PdfProblemError
+            raise PdfProblemError(f'Problem has PDF statement')
+
         # Phase 1: wait for problem-statement OR Cloudflare page (max 30s)
         try:
             WebDriverWait(driver, 30).until(

@@ -8,8 +8,8 @@ import random
 from .colors import cyan, info
 
 # Randomized wait range (in seconds)
-MIN_WAIT = 7
-MAX_WAIT = 15
+MIN_WAIT = 3
+MAX_WAIT = 7
 
 
 def random_wait(min_seconds=MIN_WAIT, max_seconds=MAX_WAIT, reason="next request"):

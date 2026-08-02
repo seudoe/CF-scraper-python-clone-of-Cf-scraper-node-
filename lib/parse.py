@@ -4,6 +4,11 @@ from bs4 import BeautifulSoup, Tag, NavigableString
 from .colors import magenta, green, red, cyan, success, error, warning, info
 
 
+class PdfProblemError(Exception):
+    """Raised when a problem statement is a PDF instead of HTML."""
+    pass
+
+
 def strip_tags(html: str) -> str:
     """Remove all HTML tags and decode entities"""
     soup = BeautifulSoup(html, 'html.parser')
@@ -199,11 +204,11 @@ def parse_problem_page(html: str, problem_key: str = '?') -> Optional[Dict[str, 
     print(magenta(f'[parse] Parsing problem statement for {problem_key} ...'))
     
     soup = BeautifulSoup(html, 'html.parser')
-    
+
     # Find problem-statement div
     ps_div = soup.find('div', class_=lambda c: c and 'problem-statement' in str(c).split())
     if not ps_div or not isinstance(ps_div, Tag):
-        print(red(f'[parse] ✗ Could not find .problem-statement in HTML for {problem_key}'))
+        print(red(f'[parse] [X] Could not find .problem-statement in HTML for {problem_key}'))
         return None
     
     # Extract metadata from header
