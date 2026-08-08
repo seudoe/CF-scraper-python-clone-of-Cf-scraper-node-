@@ -10,10 +10,15 @@ class PdfProblemError(Exception):
 
 
 def strip_tags(html: str) -> str:
-    """Remove all HTML tags and decode entities"""
+    """Remove all HTML tags and decode entities, preserving line breaks."""
     soup = BeautifulSoup(html, 'html.parser')
-    text = soup.get_text()
-    return ' '.join(text.split())
+    # Replace <br> tags with newlines before getting text
+    for br in soup.find_all('br'):
+        br.replace_with('\n')
+    text = soup.get_text(separator='')
+    # Only collapse runs of spaces/tabs on each line, not actual newlines
+    lines = [' '.join(line.split()) for line in text.split('\n')]
+    return '\n'.join(lines).strip()
 
 
 def extract_math_and_clean(html_str: str) -> str:

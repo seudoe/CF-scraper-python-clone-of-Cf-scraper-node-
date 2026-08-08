@@ -1,155 +1,197 @@
 ---
-title: Codeforces Problem Scraper API
-emoji: 🔍
-colorFrom: blue
-colorTo: purple
+title: Codeforces Problems API
+emoji: 🚀
+colorFrom: purple
+colorTo: blue
 sdk: docker
-app_port: 7860
+app_file: app_hf.py
 pinned: false
-license: mit
 ---
 
-# Codeforces Problem Scraper
+# Codeforces Problems API
 
-A Python-based web scraper for Codeforces problems with intelligent Cloudflare bypass using persistent browser profiles.
+A read-only API server for serving cached Codeforces problem statements, built as part of the seudoe VS Code extension.
 
 ## Features
 
-- ✅ **Persistent Browser Profile** - Maintains cookies and cache across sessions for better Cloudflare bypass
-- ✅ **Intelligent Parsing** - Handles arbitrary HTML nesting with recursive DOM walker
-- ✅ **MongoDB Storage** - Stores problems and images in MongoDB
-- ✅ **REST API** - Flask API for accessing scraped problems
-- ✅ **Randomized Timing** - Human-like request patterns (7-15s delays)
-- ✅ **Colored Logging** - Clear, semantic terminal output
-- ✅ **Image Caching** - Stores images with `cf-image://` URLs
+- **REST API** for fetching problem statements by contest ID and index
+- **Image serving** from MongoDB cache
+- **Problem indexing** with complete metadata (time limits, memory limits, examples)
+- **Hugging Face Spaces** compatible deployment
+
+## Deployment
+
+This space serves cached problems that were previously scraped and stored in MongoDB Atlas.
+
+### Environment Variables
+
+Set these in your Hugging Face Spaces environment:
+
+```
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/database?retryWrites=true&w=majority
+```
 
 ## API Endpoints
 
-### `GET /`
-Health check endpoint.
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "service": "cf-scraper-python",
-  "scraped": 1234
-}
+### Health Check
+```bash
+GET /
 ```
 
-### `GET /problem/:contestId/:index`
-Get a specific problem.
+Returns JSON status and count of cached problems.
 
-**Example:** `/problem/1/A`
+### Get Problem Statement
+```bash
+GET /problem/<contestId>/<index>
+```
 
-**Response:**
+Example:
+```bash
+GET /problem/1/A
+```
+
+Response:
 ```json
 {
   "contestId": 1,
   "index": "A",
+  "cachedAt": 1689123456,
+  "version": 1,
   "statement": {
     "title": "Theatre Square",
-    "timeLimit": "1 second",
+    "timeLimit": "2 seconds",
     "memoryLimit": "256 megabytes",
     "description": [...],
     "input": [...],
     "output": [...],
-    "examples": [...]
+    "examples": [...],
+    "note": [...]
   }
 }
 ```
 
-### `GET /image/:filename`
-Get a cached image.
-
-**Example:** `/image/1-A_diagram.png`
-
-### `GET /index`
-Get list of all scraped problem IDs.
-
-**Response:**
-```json
-{
-  "ids": ["1-A", "1-B", "2-A", ...],
-  "count": 1234
-}
+### Get Image
+```bash
+GET /image/<filename>
 ```
 
-### `POST /sync`
-Trigger background sync of new problems.
-
-**Response:**
-```json
-{
-  "status": "started",
-  "message": "Sync started in background"
-}
+Example:
+```bash
+GET /image/1-A_diagram.png
 ```
 
-## Environment Variables
+Returns the image binary with appropriate `Content-Type` header.
 
-- `MONGODB_URI` - MongoDB connection string (required)
-- `PORT` - Server port (default: 5000)
+### Problem Index
+```bash
+GET /index
+```
+
+Returns list of all cached problem IDs.
+
+```json
+{
+  "ids": ["1-A", "1-B", "1-C", ...],
+  "count": 9614
+}
+```
 
 ## Local Development
 
+### Installation
+
 ```bash
-# Install dependencies
+python -m venv venv
+source venv/bin/activate  # or `venv\Scripts\activate` on Windows
 pip install -r requirements.txt
+```
 
-# Set environment variables
-cp .env.example .env
-# Edit .env with your MongoDB URI
+### Run Locally
 
-# Run the server
+```bash
+# Using Flask development server
 python app.py
 
-# Or run a full sync
-python sync.py
-
-# Test the parser
-python test_parser.py
+# Or for the HF Spaces version
+python app_hf.py
 ```
 
-## Profile Management
+Server starts on `http://localhost:3000` (app.py) or `http://localhost:7860` (app_hf.py).
 
-```bash
-# Check profile status
-python manage_profile.py
+## Data Structure
 
-# Clear profile (start fresh)
-python manage_profile.py clear
+Problems are stored in MongoDB with the following structure:
+
+```javascript
+{
+  "_id": ObjectId(...),
+  "contestId": 1,
+  "index": "A",
+  "cachedAt": 1689123456,
+  "version": 1,
+  "statement": {
+    "title": "Theatre Square",
+    "timeLimit": "2 seconds",
+    "memoryLimit": "256 megabytes",
+    "description": [
+      {
+        "type": "paragraph",
+        "html": "raw MathJax HTML from CF",
+        "text": "clean text with $latex$ markers"
+      }
+    ],
+    "input": [...],
+    "output": [...],
+    "examples": [
+      {
+        "input": "1\n1 1 1",
+        "output": "1",
+        "explanation": "optional"
+      }
+    ]
+  }
+}
 ```
 
-## Architecture
+Images are stored separately:
 
-- **Persistent Profile**: Stores cookies, cache, local storage in `chrome-profile/`
-- **Randomized Delays**: 7-15 second waits between requests
-- **Intelligent Waiting**: Detects and waits for Cloudflare challenges
-- **Recursive Parser**: Handles any HTML structure
+```javascript
+{
+  "_id": ObjectId(...),
+  "problemId": "1-A",
+  "filename": "1-A_diagram.png",
+  "contentType": "image/png",
+  "data": Binary(...),
+  "cachedAt": 1689123456
+}
+```
 
-## Success Rate
+## How This Works with the seudoe Extension
 
-- **First Run**: ~10-20% (building trust)
-- **Second Run**: ~40-60% (has cookies)
-- **Third+ Runs**: ~60-80% (trusted profile)
+The VS Code extension (`seudoe`) uses this API to fetch and display Codeforces problems in a webview:
 
-## Documentation
+1. Extension queries `/problem/<contestId>/<index>`
+2. API returns cached statement (or 404 if not cached)
+3. Extension renders problem in webview using:
+   - KaTeX for math rendering from `block.text` (contains `$...$` LaTeX)
+   - Problem statement blocks (description, input, output, examples)
+   - Fetches images from `/image/<filename>`
 
-- `STATUS.md` - Current status and completed fixes
-- `PERSISTENT_PROFILE_GUIDE.md` - Detailed guide on persistent profiles
-- `cloudflareDetection.md` - Cloudflare signals research
-- `parserCorrection.md` - Parser design documentation
+## Scraping
 
-## Tech Stack
+> **Note:** Scraping is done locally using `CF-scraper-python` and requires a browser.
 
-- **Python 3.9+**
-- **Selenium** - Browser automation with persistent profiles
-- **Flask** - REST API
-- **MongoDB** - Data storage
-- **BeautifulSoup4** - HTML parsing
-- **Colorama** - Terminal colors
+This Hugging Face Space is **read-only** — it only serves pre-cached problems. To scrape new problems:
 
-## License
+1. Clone the full `CF-scraper-python` repository locally
+2. Set up your MongoDB connection
+3. Run the scraper to populate the database
+4. Deploy this Space to serve the cached problems
 
-MIT
+For scraping details, see the main repository.
+
+## Related Projects
+
+- **seudoe** — VS Code extension for viewing Codeforces problems
+- **CF-scraper** — Node.js scraper (legacy)
+- **CF-scraper-python** — Python scraper with advanced HTML parsing
