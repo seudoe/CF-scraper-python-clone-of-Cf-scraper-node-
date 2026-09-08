@@ -4,8 +4,6 @@ Endpoints match the Node.js version for compatibility with seudoe extension
 """
 
 import os
-import sys
-import threading
 from pathlib import Path
 from flask import Flask, jsonify, request, Response, render_template
 from dotenv import load_dotenv
@@ -32,7 +30,6 @@ else:
     print('[env] [X] WARNING: MONGODB_URI is not set!')
 
 from lib.db import get_problems_collection, get_index_collection, get_images_collection
-from lib.worker import sync_problems
 
 app = Flask(__name__)
 
@@ -57,25 +54,6 @@ def health_check():
         return render_template('index.html')
 
 
-@app.route('/sync', methods=['GET', 'POST'])
-def sync():
-    """Start background sync worker (accepts GET for easy browser testing)"""
-    print('[api] Sync requested — starting background worker ...')
-    
-    def run_sync():
-        try:
-            result = sync_problems()
-            print(f'[api] Sync finished: {result}')
-        except Exception as e:
-            print(f'[api] Sync error: {e}')
-    
-    # Run sync in background thread
-    thread = threading.Thread(target=run_sync, daemon=True)
-    thread.start()
-    
-    return jsonify({'message': 'Sync started. Check server logs for progress.'}), 202
-
-
 @app.route('/problem/<int:contest_id>/<index>')
 def get_problem(contest_id, index):
     """Get a cached problem by contestId and index"""
@@ -88,7 +66,7 @@ def get_problem(contest_id, index):
         
         if not cached:
             print(f'[api] Problem {contest_id}-{index} not found in DB')
-            return jsonify({'error': f'Problem {contest_id}{index} not found. Run /sync first.'}), 404
+            return jsonify({'error': f'Problem {contest_id}{index} not found. Run pipeline/pipeline.py locally to scrape it.'}), 404
         
         title = cached.get('statement', {}).get('title', 'Untitled')
         print(f'[api] [OK] Returning problem {contest_id}-{index}: "{title}"')
@@ -158,7 +136,6 @@ if __name__ == '__main__':
     port = int(os.getenv('PORT', 3000))
     
     print(f'[server] CF Scraper (Python) running on port {port}')
-    print(f'[server] GET/POST /sync   — start scraping')
     print(f'[server] GET  /           — health check')
     print(f'[server] GET  /problem/:contestId/:index')
     print(f'[server] GET  /image/:filename')
