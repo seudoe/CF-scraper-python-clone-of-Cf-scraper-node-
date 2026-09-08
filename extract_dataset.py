@@ -901,7 +901,7 @@ def main():
         missing_file = OUTPUT_DIR / 'missing_ids.json'
         if not missing_file.exists():
             print(red('[missing] saved-from-reparse/missing_ids.json not found.'))
-            print(yellow('  Run: python compare_indexes.py'))
+            print(yellow('  Run: python pipeline/pipeline.py --sync-only'))
             return
         missing_ids = set(json.loads(missing_file.read_text(encoding='utf-8')).get('ids', []))
         print(info(f'[missing] Targeting {len(missing_ids)} problems missing from local JSON'))
@@ -909,7 +909,7 @@ def main():
         missing_file = OUTPUT_DIR / 'missing_db_ids.json'
         if not missing_file.exists():
             print(red('[missing-db] saved-from-reparse/missing_db_ids.json not found.'))
-            print(yellow('  Run: python compare_indexes.py'))
+            print(yellow('  Run: python pipeline/pipeline.py --sync-only'))
             return
         missing_ids = set(json.loads(missing_file.read_text(encoding='utf-8')).get('ids', []))
         print(info(f'[missing-db] Targeting {len(missing_ids)} problems missing from MongoDB'))

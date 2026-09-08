@@ -133,7 +133,8 @@ def _apply_stealth_script(driver):
 def create_persistent_driver():
     """
     Creates a Chrome driver using the scraper profile.
-    The scraper profile should have real cookies copied into it via copy_cookies.py.
+    The scraper profile should have real cookies copied into it via
+    pipeline/chrome-cookies-checker.py.
     Does NOT use the real Chrome profile directly (avoids the "wrong window" conflict).
     """
     print(yellow('[browser] Launching Chrome with scraper profile...'))
