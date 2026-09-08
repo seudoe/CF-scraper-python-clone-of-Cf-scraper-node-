@@ -4,6 +4,7 @@ Endpoints match the Node.js version for compatibility with seudoe extension
 """
 
 import os
+import threading
 from pathlib import Path
 from flask import Flask, jsonify, request, Response, render_template
 from dotenv import load_dotenv
@@ -30,8 +31,16 @@ else:
     print('[env] [X] WARNING: MONGODB_URI is not set!')
 
 from lib.db import get_problems_collection, get_index_collection, get_images_collection
+from pipeline.pipeline import run_pipeline
 
 app = Flask(__name__)
+
+_sync_lock = threading.Lock()
+_sync_running = False
+
+
+def _truthy(value) -> bool:
+    return str(value or '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 @app.route('/')
@@ -54,6 +63,55 @@ def health_check():
         return render_template('index.html')
 
 
+@app.route('/sync', methods=['GET', 'POST'])
+def sync():
+    """
+    Trigger pipeline/pipeline.py in the background. Only works when this
+    server is run locally with a real Chrome profile (see
+    pipeline/chrome-cookies-checker.py) -- there's no browser and no
+    RAW_HTML mirror on a hosted deployment, so live scraping there will
+    just fail per-problem (logged, not fatal).
+
+    Query params (all optional, accepts GET for easy browser testing):
+      sync_only=1   only run the index-repair phases, skip fetching new problems
+      skip_sync=1   skip repair, go straight to fetching new problems
+      limit=N       cap new problems scraped this run (0 = no cap)
+      dry_run=1     report only, write nothing
+      id=1-A        (re)process exactly one problem, ignoring everything else
+    """
+    global _sync_running
+
+    with _sync_lock:
+        if _sync_running:
+            print('[api] Sync requested but one is already running — rejecting')
+            return jsonify({'error': 'A sync is already running. Check server logs for progress.'}), 409
+        _sync_running = True
+
+    kwargs = dict(
+        sync_only=_truthy(request.args.get('sync_only')),
+        skip_sync=_truthy(request.args.get('skip_sync')),
+        limit=int(request.args.get('limit', 0) or 0),
+        dry_run=_truthy(request.args.get('dry_run')),
+        single_id=request.args.get('id', ''),
+    )
+    print(f'[api] Sync requested — starting pipeline in background ({kwargs}) ...')
+
+    def run_sync():
+        global _sync_running
+        try:
+            result = run_pipeline(**kwargs)
+            print(f'[api] Pipeline finished: {result}')
+        except Exception as e:
+            print(f'[api] Pipeline error: {e}')
+        finally:
+            _sync_running = False
+
+    thread = threading.Thread(target=run_sync, daemon=True)
+    thread.start()
+
+    return jsonify({'message': 'Pipeline started. Check server logs for progress.', 'params': kwargs}), 202
+
+
 @app.route('/problem/<int:contest_id>/<index>')
 def get_problem(contest_id, index):
     """Get a cached problem by contestId and index"""
@@ -66,7 +124,7 @@ def get_problem(contest_id, index):
         
         if not cached:
             print(f'[api] Problem {contest_id}-{index} not found in DB')
-            return jsonify({'error': f'Problem {contest_id}{index} not found. Run pipeline/pipeline.py locally to scrape it.'}), 404
+            return jsonify({'error': f'Problem {contest_id}{index} not found. POST /sync?id={contest_id}-{index} to scrape it.'}), 404
         
         title = cached.get('statement', {}).get('title', 'Untitled')
         print(f'[api] [OK] Returning problem {contest_id}-{index}: "{title}"')
@@ -136,6 +194,7 @@ if __name__ == '__main__':
     port = int(os.getenv('PORT', 3000))
     
     print(f'[server] CF Scraper (Python) running on port {port}')
+    print(f'[server] GET/POST /sync   — run pipeline/pipeline.py (local Chrome required)')
     print(f'[server] GET  /           — health check')
     print(f'[server] GET  /problem/:contestId/:index')
     print(f'[server] GET  /image/:filename')

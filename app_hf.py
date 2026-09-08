@@ -108,12 +108,23 @@ def get_index():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/sync', methods=['POST'])
+@app.route('/sync', methods=['GET', 'POST'])
 def sync():
-    """Sync endpoint - disabled in HF Spaces (read-only)"""
+    """
+    Sync is disabled here on purpose, not just unimplemented: this
+    deployment has no Chrome/Selenium and no local RAW_HTML/saved-from-reparse
+    mirror (both are local-only, gitignored). Running pipeline/pipeline.py's
+    phases here would just see "everything missing locally" and try to
+    live-rescrape all ~11k+ problems already in Mongo, failing on every one.
+    Run pipeline/pipeline.py locally instead (see pipeline/chrome-cookies-checker.py).
+    """
     return jsonify({
         'error': 'Sync disabled in Hugging Face Spaces',
-        'message': 'This is a read-only deployment. Scraping should be done locally.'
+        'message': (
+            'This is a read-only deployment with no browser and no local RAW_HTML mirror. '
+            'Run python pipeline/pipeline.py locally to scrape/sync, then let this '
+            'deployment read the results from MongoDB.'
+        )
     }), 403
 
 

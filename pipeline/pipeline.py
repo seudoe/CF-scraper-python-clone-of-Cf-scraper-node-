@@ -474,6 +474,106 @@ def _dump_failures() -> None:
         print(red(f'\n[pipeline] {len(_failures)} failure(s) logged to {FAILURES_FILE}'))
 
 
+def run_pipeline(sync_only: bool = False, skip_sync: bool = False, limit: int = 0,
+                  dry_run: bool = False, single_id: str = '', close_browser: bool = True) -> dict:
+    """
+    Programmatic entry point -- everything main() does, minus argument
+    parsing, so app.py / app_hf.py can call this directly from a route
+    instead of shelling out. Always returns a summary dict; never raises
+    for per-problem failures (those land in _failures / FAILURES_FILE).
+
+    close_browser=False lets a caller that's about to make more pipeline
+    calls back-to-back skip the quit()/relaunch cycle in between.
+    """
+    _failures.clear()
+
+    problems_col = get_problems_collection()
+    images_col   = get_images_collection()
+    index_col    = get_index_collection()
+
+    summary: dict = {'mode': 'id' if single_id else ('sync' if sync_only else 'full')}
+
+    try:
+        if single_id:
+            pid = single_id.strip()
+            contest_id = int(pid.split('-', 1)[0])
+            html_path = cf_scraper.find_html(pid, contest_id)
+
+            if dry_run:
+                action = 'reparse from RAW_HTML (no network)' if html_path else 'scrape live'
+                print(yellow(f'[pipeline] DRY RUN - would {action} for {pid}'))
+                summary.update(id=pid, would=action)
+                return summary
+
+            if html_path:
+                print(cyan(f'[pipeline] {pid}: RAW_HTML found, reparsing (no network)...'))
+                status = process_from_raw(pid, problems_col, images_col, index_col)
+            else:
+                print(cyan(f'[pipeline] {pid}: no RAW_HTML, scraping live...'))
+                status = process_new(pid, problems_col, images_col, index_col)
+            (print(success(f'[pipeline] {pid}: {status}')) if status == 'ok'
+             else print(red(f'[pipeline] {pid}: {status}')))
+            summary.update(id=pid, status=status)
+            return summary
+
+        raw_ids = scan_raw_html_ids()
+
+        if not skip_sync:
+            print(bold(cyan('=' * 62)))
+            print(bold(cyan('  Phase 1 - index vs actual data (per store)')))
+            print(bold(cyan('=' * 62)))
+            raw_ids   = repair_raw_index(dry_run)
+            local_ids = repair_local_index(dry_run)
+            mongo_ids = repair_mongo_index(problems_col, index_col, dry_run)
+
+            print(bold(cyan('\n' + '=' * 62)))
+            print(bold(cyan('  Phase 2a - RAW_HTML <-> local JSON')))
+            print(bold(cyan('=' * 62)))
+            raw_ids, local_ids = phase_2a(raw_ids, local_ids, problems_col, images_col, index_col, dry_run)
+
+            print(bold(cyan('\n' + '=' * 62)))
+            print(bold(cyan('  Phase 2b - local JSON <-> MongoDB')))
+            print(bold(cyan('=' * 62)))
+            local_ids, mongo_ids = phase_2b(local_ids, mongo_ids, problems_col, images_col, index_col, dry_run)
+
+            summary['synced'] = (raw_ids == local_ids == mongo_ids)
+            summary['counts'] = {'raw': len(raw_ids), 'local': len(local_ids), 'mongo': len(mongo_ids)}
+
+            if not dry_run:
+                if summary['synced']:
+                    print(success(f'\n  All three indexes are fully synchronized: {len(raw_ids)} problems.'))
+                else:
+                    print(warning(
+                        f'\n  Still out of sync after repair - '
+                        f'raw={len(raw_ids)} local={len(local_ids)} mongo={len(mongo_ids)}'
+                    ))
+                    print(warning(f'  Check {FAILURES_FILE} for anything that failed to repair.'))
+
+        if not sync_only:
+            print(bold(cyan('\n' + '=' * 62)))
+            print(bold(cyan('  Phase 3 - fetch new problems from Codeforces')))
+            print(bold(cyan('=' * 62)))
+            result = phase_3(raw_ids, problems_col, images_col, index_col, limit, dry_run)
+            summary.update(result)
+
+            print(bold(cyan('\n' + '=' * 62)))
+            print(bold(cyan('  Summary')))
+            print(bold(cyan('=' * 62)))
+            print(success(f'  Scraped : {result["scraped"]}'))
+            if result['pdf']:
+                print(yellow(f'  PDF skip: {result["pdf"]}'))
+            if result['failed']:
+                print(red(f'  Failed  : {result["failed"]}'))
+
+        summary['failures'] = len(_failures)
+        return summary
+
+    finally:
+        if close_browser:
+            cf_scraper.close_driver()
+        _dump_failures()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description='Sync-check + scrape/parse pipeline for CF problems.')
     ap.add_argument('--sync-only', action='store_true', help='Only run phases 1-2 (repair), skip fetching new problems')
@@ -483,79 +583,10 @@ def main() -> None:
     ap.add_argument('--id', type=str, default='', help='(Re)process a single problem key e.g. 1-A, bypassing phases 1-3')
     args = ap.parse_args()
 
-    problems_col = get_problems_collection()
-    images_col   = get_images_collection()
-    index_col    = get_index_collection()
-
-    if args.id:
-        pid = args.id.strip()
-        contest_id = int(pid.split('-', 1)[0])
-        html_path = cf_scraper.find_html(pid, contest_id)
-
-        if args.dry_run:
-            action = 'reparse from RAW_HTML (no network)' if html_path else 'scrape live'
-            print(yellow(f'[pipeline] DRY RUN - would {action} for {pid}'))
-            return
-
-        if html_path:
-            print(cyan(f'[pipeline] {pid}: RAW_HTML found, reparsing (no network)...'))
-            status = process_from_raw(pid, problems_col, images_col, index_col)
-        else:
-            print(cyan(f'[pipeline] {pid}: no RAW_HTML, scraping live...'))
-            status = process_new(pid, problems_col, images_col, index_col)
-        (print(success(f'[pipeline] {pid}: {status}')) if status == 'ok'
-         else print(red(f'[pipeline] {pid}: {status}')))
-        cf_scraper.close_driver()
-        _dump_failures()
-        return
-
-    raw_ids = scan_raw_html_ids()
-
-    if not args.skip_sync:
-        print(bold(cyan('=' * 62)))
-        print(bold(cyan('  Phase 1 - index vs actual data (per store)')))
-        print(bold(cyan('=' * 62)))
-        raw_ids   = repair_raw_index(args.dry_run)
-        local_ids = repair_local_index(args.dry_run)
-        mongo_ids = repair_mongo_index(problems_col, index_col, args.dry_run)
-
-        print(bold(cyan('\n' + '=' * 62)))
-        print(bold(cyan('  Phase 2a - RAW_HTML <-> local JSON')))
-        print(bold(cyan('=' * 62)))
-        raw_ids, local_ids = phase_2a(raw_ids, local_ids, problems_col, images_col, index_col, args.dry_run)
-
-        print(bold(cyan('\n' + '=' * 62)))
-        print(bold(cyan('  Phase 2b - local JSON <-> MongoDB')))
-        print(bold(cyan('=' * 62)))
-        local_ids, mongo_ids = phase_2b(local_ids, mongo_ids, problems_col, images_col, index_col, args.dry_run)
-
-        if not args.dry_run:
-            if raw_ids == local_ids == mongo_ids:
-                print(success(f'\n  All three indexes are fully synchronized: {len(raw_ids)} problems.'))
-            else:
-                print(warning(
-                    f'\n  Still out of sync after repair - '
-                    f'raw={len(raw_ids)} local={len(local_ids)} mongo={len(mongo_ids)}'
-                ))
-                print(warning(f'  Check {FAILURES_FILE} for anything that failed to repair.'))
-
-    if not args.sync_only:
-        print(bold(cyan('\n' + '=' * 62)))
-        print(bold(cyan('  Phase 3 - fetch new problems from Codeforces')))
-        print(bold(cyan('=' * 62)))
-        result = phase_3(raw_ids, problems_col, images_col, index_col, args.limit, args.dry_run)
-
-        print(bold(cyan('\n' + '=' * 62)))
-        print(bold(cyan('  Summary')))
-        print(bold(cyan('=' * 62)))
-        print(success(f'  Scraped : {result["scraped"]}'))
-        if result['pdf']:
-            print(yellow(f'  PDF skip: {result["pdf"]}'))
-        if result['failed']:
-            print(red(f'  Failed  : {result["failed"]}'))
-
-    cf_scraper.close_driver()
-    _dump_failures()
+    run_pipeline(
+        sync_only=args.sync_only, skip_sync=args.skip_sync,
+        limit=args.limit, dry_run=args.dry_run, single_id=args.id,
+    )
 
 
 if __name__ == '__main__':
