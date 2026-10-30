@@ -1,5 +1,5 @@
 """
-Browser configuration using the real Chrome user profile.
+Browser configuration using real Brave / Chrome user profile or persistent scraper profile.
 This gives Cloudflare the highest possible trust — real browsing history,
 real cookies, real cf_clearance, real TLS fingerprint.
 """
@@ -11,25 +11,52 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from .colors import yellow, success, info, warning
 
-# Real Chrome profile — has existing Cloudflare trust, cookies, history
-REAL_CHROME_PROFILE = r'C:\Users\4dmin\AppData\Local\Google\Chrome\User Data'
+BRAVE_PATHS = [
+    r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe',
+    r'C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe',
+    os.path.expandvars(r'%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe'),
+]
+CHROME_PATHS = [
+    r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+    r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+    os.path.expandvars(r'%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe'),
+]
 
-# Fallback profile (used if real profile is locked by a running Chrome)
+
+def find_browser_binary() -> str | None:
+    for p in BRAVE_PATHS + CHROME_PATHS:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+REAL_BRAVE_USER_DATA = os.path.expandvars(r'%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data')
+REAL_CHROME_USER_DATA = os.path.expandvars(r'%LOCALAPPDATA%\Google\Chrome\User Data')
+REAL_PROFILE = REAL_BRAVE_USER_DATA if os.path.exists(REAL_BRAVE_USER_DATA) else REAL_CHROME_USER_DATA
+
+# Fallback dedicated profile (used to avoid browser window conflicts)
 PROFILE_DIR = Path(__file__).parent.parent / 'chrome-profile'
 
 
 def create_persistent_browser_options(use_real_profile: bool = True) -> Options:
     chrome_options = Options()
 
+    browser_bin = find_browser_binary()
+    if browser_bin:
+        chrome_options.binary_location = browser_bin
+        browser_name = 'Brave' if 'brave' in browser_bin.lower() else 'Chrome'
+    else:
+        browser_name = 'Chromium'
+
     if use_real_profile:
-        chrome_options.add_argument(f'--user-data-dir={REAL_CHROME_PROFILE}')
+        chrome_options.add_argument(f'--user-data-dir={REAL_PROFILE}')
         chrome_options.add_argument('--profile-directory=Default')
-        print(info('[browser] Using REAL Chrome profile (max Cloudflare trust)'))
+        print(info(f'[browser] Using REAL {browser_name} profile: {REAL_PROFILE}'))
     else:
         profile_path = str(PROFILE_DIR.absolute())
         PROFILE_DIR.mkdir(exist_ok=True)
         chrome_options.add_argument(f'--user-data-dir={profile_path}')
-        print(info(f'[browser] Using fallback profile: {profile_path}'))
+        print(info(f'[browser] Using dedicated scraper profile: {profile_path}'))
 
     # --- Anti-detection (applied before driver launch) ---
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
@@ -132,16 +159,17 @@ def _apply_stealth_script(driver):
 
 def create_persistent_driver():
     """
-    Creates a Chrome driver using the scraper profile.
+    Creates a driver using the scraper profile.
     The scraper profile should have real cookies copied into it via
     pipeline/chrome-cookies-checker.py.
-    Does NOT use the real Chrome profile directly (avoids the "wrong window" conflict).
     """
-    print(yellow('[browser] Launching Chrome with scraper profile...'))
+    browser_bin = find_browser_binary()
+    name = 'Brave' if browser_bin and 'brave' in browser_bin.lower() else 'Chrome'
+    print(yellow(f'[browser] Launching {name} with scraper profile...'))
     options = create_persistent_browser_options(use_real_profile=False)
     driver = webdriver.Chrome(options=options)
     _apply_stealth_script(driver)
-    print(success('[browser] Chrome launched'))
+    print(success(f'[browser] {name} launched successfully'))
     return driver
 
 
@@ -158,13 +186,13 @@ def warm_up_browser(driver):
 
 def get_profile_info():
     return {
-        'real_profile': REAL_CHROME_PROFILE,
+        'real_profile': REAL_PROFILE,
         'fallback_profile': str(PROFILE_DIR),
     }
 
 
 def clear_profile():
-    """Clears only the fallback profile. Never touches your real Chrome."""
+    """Clears only the fallback profile. Never touches your real browser."""
     import shutil
     if PROFILE_DIR.exists():
         print(yellow(f'[browser] Clearing fallback profile: {PROFILE_DIR}'))
