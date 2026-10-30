@@ -5,9 +5,10 @@ services:
     region: oregon
     plan: free
     buildCommand: |
-      pip install -r requirements.txt
+      pip install uv
+      uv sync --extra scraper
       apt-get update && apt-get install -y chromium chromium-driver || echo "Using system Chrome"
-    startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT app:app --timeout 300
+    startCommand: uv run gunicorn -w 1 -b 0.0.0.0:$PORT app:app --timeout 300
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0

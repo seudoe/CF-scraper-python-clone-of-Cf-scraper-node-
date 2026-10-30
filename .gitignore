@@ -6,6 +6,7 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 ENV/
 build/
 develop-eggs/
@@ -35,6 +36,8 @@ chrome-profile/
 example-htmls/
 /example-htmls/
 *.html
+!templates/
+!templates/*.html
 
 /markdowns/
 markdowns/
@@ -67,3 +70,4 @@ example-profile/
 mongo-json-check/
 RAW_HTML/
 saved-from-reparse/
+.gitignore

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Codeforces Problem Scraper API</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+        
+        h1 {
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 2.5rem;
+        }
+        
+        .subtitle {
+            color: #718096;
+            margin-bottom: 30px;
+            font-size: 1.1rem;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        
+        .endpoint {
+            background: #f7fafc;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+        
+        .endpoint-title {
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 8px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .endpoint-desc {
+            color: #4a5568;
+            margin-bottom: 10px;
+        }
+        
+        .endpoint-example {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            color: #2d3748;
+            overflow-x: auto;
+        }
+        
+        .method {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        
+        .method-get {
+            background: #48bb78;
+            color: white;
+        }
+        
+        .method-post {
+            background: #4299e1;
+            color: white;
+        }
+        
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .footer {
+            text-align: center;
+            color: white;
+            margin-top: 30px;
+            opacity: 0.9;
+        }
+        
+        a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>🔍 Codeforces Problem Scraper</h1>
+            <p class="subtitle">REST API for accessing scraped Codeforces problems</p>
+            
+            <div class="stats">
+                <div class="stat-box">
+                    <div class="stat-value" id="problemCount">
+                        <div class="loader"></div>
+                    </div>
+                    <div class="stat-label">Problems Scraped</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">✅</div>
+                    <div class="stat-label">Status: Online</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2 style="color: #2d3748; margin-bottom: 20px;">📚 API Endpoints</h2>
+            
+            <div class="endpoint">
+                <div class="endpoint-title">
+                    <span class="method method-get">GET</span>
+                    /problem/:contestId/:index
+                </div>
+                <div class="endpoint-desc">Get a specific problem by contest ID and index</div>
+                <div class="endpoint-example">
+                    curl https://your-space.hf.space/problem/1/A
+                </div>
+            </div>
+            
+            <div class="endpoint">
+                <div class="endpoint-title">
+                    <span class="method method-get">GET</span>
+                    /index
+                </div>
+                <div class="endpoint-desc">Get list of all scraped problem IDs</div>
+                <div class="endpoint-example">
+                    curl https://your-space.hf.space/index
+                </div>
+            </div>
+            
+            <div class="endpoint">
+                <div class="endpoint-title">
+                    <span class="method method-get">GET</span>
+                    /image/:filename
+                </div>
+                <div class="endpoint-desc">Get a cached problem image</div>
+                <div class="endpoint-example">
+                    curl https://your-space.hf.space/image/1-A_diagram.png
+                </div>
+            </div>
+            
+            <div class="endpoint">
+                <div class="endpoint-title">
+                    <span class="method method-get">GET</span>
+                    /
+                </div>
+                <div class="endpoint-desc">Health check and API status</div>
+                <div class="endpoint-example">
+                    curl https://your-space.hf.space/
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2 style="color: #2d3748; margin-bottom: 15px;">ℹ️ About</h2>
+            <p style="color: #4a5568; line-height: 1.6;">
+                This API provides access to scraped Codeforces problems with intelligent parsing.
+                The scraper uses a persistent browser profile with randomized timing to bypass
+                Cloudflare protection. All problems are stored in MongoDB and served through this API.
+            </p>
+            <p style="color: #4a5568; line-height: 1.6; margin-top: 15px;">
+                <strong>Note:</strong> This is a read-only deployment. Scraping is done locally
+                and problems are synced to the shared MongoDB database.
+            </p>
+        </div>
+        
+        <div class="footer">
+            <p>Built with ❤️ using Python, Flask, and MongoDB</p>
+            <p style="margin-top: 5px;">
+                <a href="https://github.com" target="_blank" style="color: white;">View on GitHub</a>
+            </p>
+        </div>
+    </div>
+    
+    <script>
+        // Fetch problem count on page load
+        fetch('/')
+            .then(response => response.json())
+            .then(data => {
+                const countElement = document.getElementById('problemCount');
+                if (data.scraped !== undefined) {
+                    countElement.textContent = data.scraped.toLocaleString();
+                } else {
+                    countElement.textContent = '0';
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching stats:', error);
+                document.getElementById('problemCount').textContent = 'N/A';
+            });
+    </script>
+</body>
+</html>

@@ -8,190 +8,199 @@ app_file: app_hf.py
 pinned: false
 ---
 
-# Codeforces Problems API
+# Codeforces Problems Scraper & API Engine
 
-A read-only API server for serving cached Codeforces problem statements, built as part of the seudoe VS Code extension.
+A high-performance pipeline and REST API server for scraping, parsing, synchronizing, and serving Codeforces problem statements. This repository is the backend engine powering the **seudoe** VS Code extension.
 
-## Features
+---
 
-- **REST API** for fetching problem statements by contest ID and index
-- **Image serving** from MongoDB cache
-- **Problem indexing** with complete metadata (time limits, memory limits, examples)
-- **Hugging Face Spaces** compatible deployment
+## 🏛️ Architecture & The 3-Store Model
 
-## Deployment
-
-This space serves cached problems that were previously scraped and stored in MongoDB Atlas.
-
-### Environment Variables
-
-Set these in your Hugging Face Spaces environment:
+The system uses three layers of data storage to ensure that parser bugs or network failures never require re-scraping the 11,000+ problems from Codeforces:
 
 ```
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/database?retryWrites=true&w=majority
+[ Codeforces Web ]  <─── (Selenium + Persistent Chrome Cookies)
+       │
+       ▼
+ [ RAW_HTML/ ]      <─── Ground truth (raw HTML files + problem_index.json)
+       │
+       ▼ (Parser: MathJax to LaTeX, images, sample tests)
+ [ saved-from-reparse/ ] <─── High-fidelity JSON files (local disk cache)
+       │
+       ▲▼ (Bidirectional Sync)
+ [ MongoDB Atlas ]  <─── Cloud database (problems, images, problem_index)
+       ▲
+       │
+ [ REST API Server ] <─── Serves seudoe extension (Flask / Gunicorn via uv)
 ```
 
-## API Endpoints
+1. **`RAW_HTML/` (The Source of Truth)**
+   * Stores unmodified HTML pages fetched from Codeforces in range buckets (e.g. `RAW_HTML/2200-2300/2261-A.html`).
+   * Tracked by [`RAW_HTML/problem_index.json`](file:///c:/Users/4dmin/Downloads/HackWo/seudoe/CF-scraper-python/RAW_HTML/problem_index.json).
+   * Once saved, any parsing logic improvement can be tested and applied locally with **zero network requests**.
 
-### Health Check
-```bash
-GET /
+2. **`saved-from-reparse/` (Local Structured JSON)**
+   * Clean, parsed problem statements in range buckets (e.g. `saved-from-reparse/2200-2300/2261-A.json`).
+   * LaTeX formulas converted from MathJax to standard `$math$` markers for KaTeX rendering.
+   * Diagram images rewritten to local `cf-image://` URI identifiers.
+
+3. **`MongoDB` (Production Serving Layer)**
+   * **`problems`**: Structured problem documents.
+   * **`images`**: Binary image buffers (PNG/JPEG/GIF) stored with mime types.
+   * **`problem_index`**: Array of all available problem IDs for quick cataloging.
+
+---
+
+## ⚙️ How the Pipeline Works
+
+When you run the pipeline ([`pipeline/pipeline.py`](file:///c:/Users/4dmin/Downloads/HackWo/seudoe/CF-scraper-python/pipeline/pipeline.py)), it executes the following phases in sequence:
+
+### Phase 1: Internal Index Verification (Per Store)
+* Scans `RAW_HTML/` on disk vs `RAW_HTML/problem_index.json`.
+* Scans `saved-from-reparse/` on disk vs `saved-from-reparse/problem_index.json`.
+* Scans MongoDB `problems` collection vs MongoDB `problem_index`.
+* Automatically prunes stale entries and adds untracked files to maintain index integrity.
+
+### Phase 2: Cross-Store Synchronization
+* **Phase 2a (`RAW_HTML` ⟷ `saved-from-reparse`)**:
+  * If `RAW_HTML` has a problem that `saved-from-reparse` is missing: immediately (re)parses it from disk with **no network calls**.
+  * If local JSON exists but `RAW_HTML` is missing: re-scrapes the raw page live.
+* **Phase 2b (`saved-from-reparse` ⟷ `MongoDB`)**:
+  * **Upload**: If local JSON exists but MongoDB is missing it, pushes the JSON statement and binary images to MongoDB.
+  * **Download**: If MongoDB has a problem that local disk is missing, downloads the document and missing images directly from MongoDB without scraping.
+
+### Phase 3 & 4: Live Scraping & Ingestion (New Problems)
+1. **Fetches CF API**: Queries `https://codeforces.com/api/problemset.problems` to get the master list of all problems on Codeforces.
+2. **Diffs against Index**: Identifies which problems exist on Codeforces but are missing from `RAW_HTML` (excluding known PDF-only problems).
+3. **Live Web Scrape**: Uses Selenium with stealth scripts and real Chrome cookies to bypass Cloudflare Turnstile protection.
+4. **Immediate Persistence**: Saves RAW HTML, parses statement, downloads images, writes local JSON, and upserts to MongoDB **one problem at a time** (no bulk batching, so interruptions never lose progress).
+
+---
+
+## 🚀 Setup & Installation (using `uv`)
+
+This project uses [**`uv`**](https://github.com/astral-sh/uv) for fast, deterministic Python environment and dependency management.
+
+### 1. Install Dependencies
+
+* **For Full Scraper & Pipeline (Local Machine)**:
+  ```powershell
+  uv sync --extra scraper
+  ```
+  *(Installs Flask, PyMongo, Gunicorn, Requests, plus Selenium, Undetected-Chromedriver, and BeautifulSoup4).*
+
+* **For Read-Only API Server (Lightweight / Docker)**:
+  ```powershell
+  uv sync
+  ```
+
+### 2. Configure Environment
+
+Create a `.env` file in the root directory:
+```ini
+MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/codeforces?retryWrites=true&w=majority
+PORT=3000
 ```
 
-Returns JSON status and count of cached problems.
+---
 
-### Get Problem Statement
-```bash
-GET /problem/<contestId>/<index>
+## 🛠️ CLI Commands: Scraping & Synchronization
+
+All commands are run using `uv run` (no manual virtual environment activation needed).
+
+### Step 1: Verify / Copy Chrome Cookies (Bypass Cloudflare)
+Codeforces uses Cloudflare Turnstile bot detection. To ensure the scraper is trusted, copy cookies from your local Chrome profile into the dedicated scraper profile:
+
+1. Close Google Chrome completely.
+2. Run the cookie checker:
+   ```powershell
+   uv run python pipeline/chrome-cookies-checker.py
+   ```
+3. The script will copy the session cookies and run a live verification check against `https://codeforces.com/problemset/problem/1/A`.
+4. *Flags:*
+   * `--verify-only`: Skip copying, just test the current scraper profile.
+   * `--copy-only`: Copy cookies without running the verification test.
+
+---
+
+### Step 2: Run the Pipeline
+
+#### 1. Dry Run (Inspect without making changes)
+Check what the pipeline would repair and which new problems are ready to be scraped:
+```powershell
+uv run python pipeline/pipeline.py --dry-run
 ```
 
-Example:
-```bash
-GET /problem/1/A
+#### 2. Full Run (Sync + Scrape all new problems)
+Syncs all three stores and scrapes every new problem from Codeforces:
+```powershell
+uv run python pipeline/pipeline.py
 ```
 
-Response:
-```json
-{
-  "contestId": 1,
-  "index": "A",
-  "cachedAt": 1689123456,
-  "version": 1,
-  "statement": {
-    "title": "Theatre Square",
-    "timeLimit": "2 seconds",
-    "memoryLimit": "256 megabytes",
-    "description": [...],
-    "input": [...],
-    "output": [...],
-    "examples": [...],
-    "note": [...]
-  }
-}
+#### 3. Scrape a Capped Batch of New Problems (Recommended)
+Cap the number of new problems scraped in this run (e.g. scrape the first 10 new problems):
+```powershell
+uv run python pipeline/pipeline.py --limit 10
 ```
 
-### Get Image
-```bash
-GET /image/<filename>
+#### 4. Sync Only (No Live Scraping)
+Run Phases 1, 2a, and 2b to ensure `RAW_HTML`, `saved-from-reparse`, and `MongoDB` are 100% in sync without scraping anything new:
+```powershell
+uv run python pipeline/pipeline.py --sync-only
 ```
 
-Example:
-```bash
-GET /image/1-A_diagram.png
+#### 5. Skip Sync (Jump straight to Scraping New Problems)
+Skip the internal store consistency check and immediately scrape new problems from CF API:
+```powershell
+uv run python pipeline/pipeline.py --skip-sync
 ```
 
-Returns the image binary with appropriate `Content-Type` header.
-
-### Problem Index
-```bash
-GET /index
+#### 6. Scrape or Reparse a Single Problem
+Target a single problem key (e.g. `2261-A` or `1-A`). If RAW HTML exists, it reparses locally; if not, it scrapes live:
+```powershell
+uv run python pipeline/pipeline.py --id 2261-A
 ```
 
-Returns list of all cached problem IDs.
+---
 
-```json
-{
-  "ids": ["1-A", "1-B", "1-C", ...],
-  "count": 9614
-}
+## 🌐 Running the Web API Server
+
+### 1. Full API Server (`app.py`)
+Includes problem lookup, image streaming, and the `/sync` background pipeline trigger endpoint:
+
+```powershell
+# Development
+uv run python app.py
+
+# Production with Gunicorn
+uv run gunicorn -w 1 -b 0.0.0.0:3000 app:app --timeout 300
 ```
 
-## Local Development
+### 2. Read-Only HF Spaces Server (`app_hf.py`)
+Lightweight server that queries MongoDB directly (no browser / scraping dependencies):
 
-### Installation
-
-```bash
-python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-pip install -r requirements.txt
+```powershell
+uv run python app_hf.py
 ```
 
-### Run Locally
+---
 
-```bash
-# Using Flask development server
-python app.py
+## 📡 API Endpoints
 
-# Or for the HF Spaces version
-python app_hf.py
-```
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/` | Health check. Returns JSON status for API requests, or web UI for browsers. |
+| `GET` | `/problem/<contestId>/<index>` | Returns parsed JSON statement with LaTeX text, example tests, and metadata. |
+| `GET` | `/image/<filename>` | Streams cached problem diagram binary from MongoDB with proper `Content-Type`. |
+| `GET` | `/index` | Returns list of all scraped problem IDs and total count. |
+| `GET/POST`| `/sync` | Triggers [`pipeline.py`](file:///c:/Users/4dmin/Downloads/HackWo/seudoe/CF-scraper-python/pipeline/pipeline.py) in the background. Optional params: `limit=10`, `sync_only=1`, `dry_run=1`, `id=1-A`. |
 
-Server starts on `http://localhost:3000` (app.py) or `http://localhost:7860` (app_hf.py).
+---
 
-## Data Structure
+## 🐳 Deployment
 
-Problems are stored in MongoDB with the following structure:
+### Hugging Face Spaces
+Configured via [`Dockerfile`](file:///c:/Users/4dmin/Downloads/HackWo/seudoe/CF-scraper-python/Dockerfile) and [`spaces_config.yaml`](file:///c:/Users/4dmin/Downloads/HackWo/seudoe/CF-scraper-python/spaces_config.yaml). The Dockerfile copies `uv` directly from the official image, runs `uv sync --frozen --no-dev` to install only core dependencies, and starts Gunicorn on port `7860`.
 
-```javascript
-{
-  "_id": ObjectId(...),
-  "contestId": 1,
-  "index": "A",
-  "cachedAt": 1689123456,
-  "version": 1,
-  "statement": {
-    "title": "Theatre Square",
-    "timeLimit": "2 seconds",
-    "memoryLimit": "256 megabytes",
-    "description": [
-      {
-        "type": "paragraph",
-        "html": "raw MathJax HTML from CF",
-        "text": "clean text with $latex$ markers"
-      }
-    ],
-    "input": [...],
-    "output": [...],
-    "examples": [
-      {
-        "input": "1\n1 1 1",
-        "output": "1",
-        "explanation": "optional"
-      }
-    ]
-  }
-}
-```
-
-Images are stored separately:
-
-```javascript
-{
-  "_id": ObjectId(...),
-  "problemId": "1-A",
-  "filename": "1-A_diagram.png",
-  "contentType": "image/png",
-  "data": Binary(...),
-  "cachedAt": 1689123456
-}
-```
-
-## How This Works with the seudoe Extension
-
-The VS Code extension (`seudoe`) uses this API to fetch and display Codeforces problems in a webview:
-
-1. Extension queries `/problem/<contestId>/<index>`
-2. API returns cached statement (or 404 if not cached)
-3. Extension renders problem in webview using:
-   - KaTeX for math rendering from `block.text` (contains `$...$` LaTeX)
-   - Problem statement blocks (description, input, output, examples)
-   - Fetches images from `/image/<filename>`
-
-## Scraping
-
-> **Note:** Scraping is done locally using `CF-scraper-python` and requires a browser.
-
-This Hugging Face Space is **read-only** — it only serves pre-cached problems. To scrape new problems:
-
-1. Clone the full `CF-scraper-python` repository locally
-2. Set up your MongoDB connection
-3. Run the scraper to populate the database
-4. Deploy this Space to serve the cached problems
-
-For scraping details, see the main repository.
-
-## Related Projects
-
-- **seudoe** — VS Code extension for viewing Codeforces problems
-- **CF-scraper** — Node.js scraper (legacy)
-- **CF-scraper-python** — Python scraper with advanced HTML parsing
+### Render
+Configured via [`render.yaml`](file:///c:/Users/4dmin/Downloads/HackWo/seudoe/CF-scraper-python/render.yaml). Builds with `pip install uv && uv sync --extra scraper` and installs Chromium for live background scraping.

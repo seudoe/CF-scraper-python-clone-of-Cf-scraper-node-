@@ -308,6 +308,46 @@ def push_local_to_mongo(problem_key: str, problems_col, images_col, index_col) -
 
     return 'ok'
 
+
+def pull_mongo_to_local(problem_key: str, problems_col, images_col) -> str:
+    """Problem exists in Mongo but missing in saved-from-reparse: download JSON and images from Mongo."""
+    try:
+        contest_id = int(problem_key.split('-', 1)[0])
+        index = problem_key.split('-', 1)[1].upper()
+    except ValueError:
+        _record_failure(problem_key, 'parse_key', 'Invalid problem key format')
+        return 'error'
+
+    try:
+        doc = problems_col.find_one({'contestId': contest_id, 'index': index}, {'_id': 0})
+        if not doc:
+            _record_failure(problem_key, 'mongo_find', 'Document missing in MongoDB')
+            return 'error'
+
+        doc['id'] = problem_key
+        p = local_json_path(problem_key, contest_id)
+        p.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding='utf-8')
+        add_local_id(problem_key)
+
+        # Download any referenced images from Mongo if missing on disk
+        statement = doc.get('statement', {})
+        for sec in ('description', 'input', 'output', 'note'):
+            for b in statement.get(sec, []) or []:
+                if b.get('type') == 'image' and b.get('src', '').startswith('cf-image://'):
+                    fn = b['src'].replace('cf-image://', '')
+                    img_path = cf_scraper.IMAGES_DIR / fn
+                    if not img_path.exists():
+                        img_doc = images_col.find_one({'filename': fn})
+                        if img_doc and 'data' in img_doc:
+                            cf_scraper.IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+                            img_path.write_bytes(img_doc['data'])
+                            print(info(f'    [img] Downloaded {fn} from Mongo'))
+
+        return 'ok'
+    except Exception as e:
+        _record_failure(problem_key, 'mongo_pull', e)
+        return 'error'
+
 # ── Phase 1 - index vs actual data, per store ─────────────────────────────────
 
 def repair_raw_index(dry_run: bool) -> set[str]:
@@ -398,7 +438,7 @@ def phase_2b(local_ids: set[str], mongo_ids: set[str],
         return local_ids, mongo_ids
 
     print(cyan(f'  local JSON -> MongoDB : {len(to_push):>6} to push (already parsed, no reparse)'))
-    print(cyan(f'  MongoDB -> local JSON : {len(to_pull):>6} missing everywhere but Mongo - will re-scrape live'))
+    print(cyan(f'  MongoDB -> local JSON : {len(to_pull):>6} to pull (download from Mongo)'))
     if dry_run:
         return local_ids, mongo_ids
 
@@ -409,15 +449,10 @@ def phase_2b(local_ids: set[str], mongo_ids: set[str],
             print(success('ok'))
 
     for i, pid in enumerate(to_pull, 1):
-        print(cyan(f'\n  ({i}/{len(to_pull)}) re-scrape {pid} (missing from RAW_HTML + local JSON)'))
-        status = process_new(pid, problems_col, images_col, index_col)
-        if status == 'ok':
+        print(cyan(f'  ({i}/{len(to_pull)}) pull {pid} from Mongo'), end=' ', flush=True)
+        if pull_mongo_to_local(pid, problems_col, images_col) == 'ok':
             local_ids.add(pid)
-            mongo_ids.add(pid)
-        elif status == 'pdf':
-            mongo_ids.discard(pid)
-        if i < len(to_pull):
-            random_wait(reason=f'next repair scrape ({i + 1}/{len(to_pull)})')
+            print(success('ok'))
 
     return local_ids, mongo_ids
 
